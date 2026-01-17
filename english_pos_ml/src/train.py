@@ -3,12 +3,14 @@ from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.svm import LinearSVC
 from sklearn.linear_model import LogisticRegression
-from sklearn.pipeline import Pipeline
+from sklearn.pipeline import Pipeline, FeatureUnion
+from sklearn.preprocessing import FunctionTransformer
 import sys
 import os
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src import config
+from src.feature_engineering import LinguisticFeatureExtractor
 
 def train_model(df):
     """
@@ -17,7 +19,7 @@ def train_model(df):
     処理の流れ:
     1. サンプル数が少ないクラスのフィルタリング(stratified splitに必要)
     2. データの分割(訓練用とテスト用)
-    3. パイプラインの構築(TF-IDF + 分類器)
+    3. パイプラインの構築(TF-IDF + 言語的特徴量 + 分類器)
     4. モデルの学習
     
     Args:
@@ -25,7 +27,7 @@ def train_model(df):
     
     Returns:
         tuple: (学習済みパイプライン, テスト特徴量, テスト正解ラベル)
-            - pipeline (Pipeline): TF-IDF + 分類器の学習済みパイプライン
+            - pipeline (Pipeline): TF-IDF + 言語的特徴量 + 分類器の学習済みパイプライン
             - X_test (pd.Series): テスト用の特徴量(単語のスペル)
             - y_test (pd.Series): テスト用の正解ラベル(品詞)
     """
@@ -66,16 +68,31 @@ def train_model(df):
     # ===========================
     # パイプラインの構築
     # ===========================
-    print("Initializing pipeline...")
+    print("Initializing pipeline with enhanced features...")
     
     # TF-IDF Vectorizer: 文字n-gramを特徴量に変換
     # analyzer='char': 文字レベルで解析(単語レベルではない)
     # ngram_range: 2文字から5文字までの連続した文字列を特徴量として抽出
     #   例: "running" → "ru", "un", "nn", "ni", "ing", "run", "unn", "nni", "ning", ...
-    vectorizer = TfidfVectorizer(
+    tfidf_vectorizer = TfidfVectorizer(
         analyzer='char',
         ngram_range=config.NGRAM_RANGE
     )
+    
+    # 言語的特徴量抽出器
+    # 接尾辞・接頭辞パターン、単語長、文字比率などを抽出
+    linguistic_extractor = LinguisticFeatureExtractor()
+    
+    # ===========================
+    # FeatureUnionで特徴量を結合
+    # ===========================
+    # 複数の特徴抽出器を並列に実行し、結果を結合
+    # 1. TF-IDF文字n-gram (スパース行列)
+    # 2. 言語的特徴量 (密行列)
+    feature_union = FeatureUnion([
+        ('tfidf', tfidf_vectorizer),           # TF-IDF特徴量
+        ('linguistic', linguistic_extractor),   # 言語的特徴量
+    ])
     
     # ===========================
     # 分類器の選択
@@ -90,20 +107,21 @@ def train_model(df):
     classifier = LinearSVC(
         class_weight='balanced',          # クラス不均衡に対応(少数クラスの重みを増やす)
         random_state=config.RANDOM_STATE, # 再現性の確保
-        dual='auto'                       # 最新のscikit-learnの警告を抑制
+        dual='auto',                      # 最新のscikit-learnの警告を抑制
+        max_iter=2000                     # 特徴量が増えたため反復回数を増加
     )
     
-    # パイプラインの作成: ベクトル化 → 分類を一連の流れとして定義
+    # パイプラインの作成: 特徴量抽出 → 分類を一連の流れとして定義
     pipeline = Pipeline([
-        ('vectorizer', vectorizer),  # ステップ1: テキストをTF-IDF特徴量に変換
-        ('classifier', classifier)   # ステップ2: 特徴量から品詞を分類
+        ('features', feature_union),  # ステップ1: TF-IDF + 言語的特徴量を抽出・結合
+        ('classifier', classifier)    # ステップ2: 特徴量から品詞を分類
     ])
     
     # ===========================
     # モデルの学習
     # ===========================
-    print("Training model...")
-    # パイプライン全体を学習(ベクトル化と分類を同時に実行)
+    print("Training model with TF-IDF + Linguistic features...")
+    # パイプライン全体を学習(特徴抽出と分類を同時に実行)
     pipeline.fit(X_train, y_train)
     print("Training completed.")
     

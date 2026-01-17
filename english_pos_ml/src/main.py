@@ -54,19 +54,25 @@ def main():
     # モデル保存ディレクトリが存在しない場合は作成
     os.makedirs(config.MODELS_DIR, exist_ok=True)
     
-    # パイプラインから各コンポーネントを取り出して個別に保存
-    # 要件: vectorizer.joblibとpos_model.joblibを分離して保存
-    # 注意: パイプライン全体を保存する方が便利だが、要件に従い分離保存
+    # パイプライン全体を保存
+    # 注意: 新しいパイプライン構造(FeatureUnion使用)では、
+    # 個別のコンポーネントを取り出すのが複雑になるため、
+    # パイプライン全体を1つのファイルとして保存する方が実用的
     
-    # TF-IDFベクトライザの保存
-    vectorizer = pipeline['vectorizer']
-    joblib.dump(vectorizer, config.VECTORIZER_FILE)
-    print(f"Vectorizer saved to {config.VECTORIZER_FILE}")
+    # パイプライン全体の保存
+    pipeline_file = os.path.join(config.MODELS_DIR, 'pipeline.joblib')
+    joblib.dump(pipeline, pipeline_file)
+    print(f"Complete pipeline saved to {pipeline_file}")
     
-    # 分類器(LinearSVC)の保存
+    # 後方互換性のため、分類器のみも保存
     classifier = pipeline['classifier']
     joblib.dump(classifier, config.MODEL_FILE)
-    print(f"Model saved to {config.MODEL_FILE}")
+    print(f"Classifier saved to {config.MODEL_FILE}")
+    
+    # 特徴抽出器(FeatureUnion)も保存
+    feature_extractor = pipeline['features']
+    joblib.dump(feature_extractor, config.VECTORIZER_FILE)
+    print(f"Feature extractor saved to {config.VECTORIZER_FILE}")
     
     print("\n=== Process Completed Successfully ===")
 
