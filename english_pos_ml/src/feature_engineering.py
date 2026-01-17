@@ -48,6 +48,10 @@ def extract_linguistic_features(word):
     suffix_al = 1 if word.endswith('al') else 0
     suffix_ic = 1 if word.endswith('ic') else 0
     suffix_less = 1 if word.endswith('less') else 0
+    suffix_y = 1 if word.endswith('y') else 0
+    suffix_ent = 1 if word.endswith('ent') else 0
+    suffix_ant = 1 if word.endswith('ant') else 0
+
     
     # 副詞に多い接尾辞
     suffix_ly = 1 if word.endswith('ly') else 0
@@ -121,6 +125,9 @@ def extract_linguistic_features(word):
         'suffix_al': suffix_al,
         'suffix_ic': suffix_ic,
         'suffix_less': suffix_less,
+        'suffix_y': suffix_y,
+        'suffix_ent': suffix_ent,
+        'suffix_ant': suffix_ant,
         
         # 接尾辞 - 副詞
         'suffix_ly': suffix_ly,

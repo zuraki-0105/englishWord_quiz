@@ -54,25 +54,23 @@ def main():
     # モデル保存ディレクトリが存在しない場合は作成
     os.makedirs(config.MODELS_DIR, exist_ok=True)
     
-    # パイプライン全体を保存
-    # 注意: 新しいパイプライン構造(FeatureUnion使用)では、
-    # 個別のコンポーネントを取り出すのが複雑になるため、
-    # パイプライン全体を1つのファイルとして保存する方が実用的
+    # ハイブリッドパイプライン全体を保存
+    # RuleBasedClassifier + MLパイプライン(FeatureUnion + LinearSVC)
+    # 注意: 新しいハイブリッド構造では、パイプライン全体を1つのファイルとして保存
     
-    # パイプライン全体の保存
+    # パイプライン全体の保存（推奨）
     pipeline_file = os.path.join(config.MODELS_DIR, 'pipeline.joblib')
     joblib.dump(pipeline, pipeline_file)
-    print(f"Complete pipeline saved to {pipeline_file}")
+    print(f"Complete hybrid pipeline saved to {pipeline_file}")
     
-    # 後方互換性のため、分類器のみも保存
-    classifier = pipeline['classifier']
+    # 後方互換性のため、内部のMLパイプラインと分類器も保存
+    ml_pipeline = pipeline.ml_classifier
+    joblib.dump(ml_pipeline, config.VECTORIZER_FILE)
+    print(f"ML pipeline saved to {config.VECTORIZER_FILE}")
+    
+    classifier = ml_pipeline['classifier']
     joblib.dump(classifier, config.MODEL_FILE)
     print(f"Classifier saved to {config.MODEL_FILE}")
-    
-    # 特徴抽出器(FeatureUnion)も保存
-    feature_extractor = pipeline['features']
-    joblib.dump(feature_extractor, config.VECTORIZER_FILE)
-    print(f"Feature extractor saved to {config.VECTORIZER_FILE}")
     
     print("\n=== Process Completed Successfully ===")
 

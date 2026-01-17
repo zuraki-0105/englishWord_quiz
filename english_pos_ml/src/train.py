@@ -11,6 +11,7 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src import config
 from src.feature_engineering import LinguisticFeatureExtractor
+from src.rule_based_classifier import RuleBasedClassifier
 
 def train_model(df):
     """
@@ -112,7 +113,7 @@ def train_model(df):
     )
     
     # パイプラインの作成: 特徴量抽出 → 分類を一連の流れとして定義
-    pipeline = Pipeline([
+    ml_pipeline = Pipeline([
         ('features', feature_union),  # ステップ1: TF-IDF + 言語的特徴量を抽出・結合
         ('classifier', classifier)    # ステップ2: 特徴量から品詞を分類
     ])
@@ -122,7 +123,23 @@ def train_model(df):
     # ===========================
     print("Training model with TF-IDF + Linguistic features...")
     # パイプライン全体を学習(特徴抽出と分類を同時に実行)
-    pipeline.fit(X_train, y_train)
+    ml_pipeline.fit(X_train, y_train)
     print("Training completed.")
     
-    return pipeline, X_test, y_test
+    # ===========================
+    # ハイブリッド予測パイプラインの構築
+    # ===========================
+    print("Building hybrid prediction pipeline with rule-based classifier...")
+    # 学習済みMLパイプラインをRuleBasedClassifierでラップ
+    # これにより、助動詞はルールベースで、その他はMLモデルで予測される
+    hybrid_pipeline = RuleBasedClassifier(
+        ml_classifier=ml_pipeline,
+        auxiliary_verbs=config.AUXILIARY_VERBS
+    )
+    
+    # RuleBasedClassifierのfit()を呼び出してclasses_を設定
+    # （実際の学習は既に完了しているため、形式的な呼び出し）
+    hybrid_pipeline.fit(X_train, y_train)
+    print("Hybrid pipeline ready.")
+    
+    return hybrid_pipeline, X_test, y_test
