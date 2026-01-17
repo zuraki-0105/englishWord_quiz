@@ -3,6 +3,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.svm import LinearSVC
 from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import VotingClassifier, RandomForestClassifier
 from sklearn.pipeline import Pipeline, FeatureUnion
 from sklearn.preprocessing import FunctionTransformer
 import sys
@@ -96,26 +97,45 @@ def train_model(df):
     ])
     
     # ===========================
-    # 分類器の選択
+    # 分類器の選択 (Ensemble Learning)
     # ===========================
-    # LinearSVC: 線形サポートベクターマシン
-    # - テキスト分類タスクで高い性能を発揮
-    # - 高次元のスパースな特徴量(TF-IDF)に適している
-    # - LogisticRegressionも候補だが、LinearSVCの方が一般的に高精度
-    # 
-    # 注意: LinearSVCはpredict_proba()をサポートしていない
-    # 確率が必要な場合は、LogisticRegressionまたはCalibratedClassifierCVを使用
-    classifier = LinearSVC(
-        class_weight='balanced',          # クラス不均衡に対応(少数クラスの重みを増やす)
-        random_state=config.RANDOM_STATE, # 再現性の確保
-        dual='auto',                      # 最新のscikit-learnの警告を抑制
-        max_iter=2000                     # 特徴量が増えたため反復回数を増加
+    # VotingClassifier: 複数のモデルの以下のモデルを組み合わせる
+    # 1. LinearSVC: 高次元データに強い (既存のベスト)
+    # 2. LogisticRegression: 確率的推定が得意
+    # 3. RandomForest: 特徴間の非線形な関係を捉える
+    
+    clf_svc = LinearSVC(
+        class_weight='balanced',
+        random_state=config.RANDOM_STATE,
+        dual='auto',
+        max_iter=3000
     )
     
-    # パイプラインの作成: 特徴量抽出 → 分類を一連の流れとして定義
+    clf_lr = LogisticRegression(
+        class_weight='balanced',
+        random_state=config.RANDOM_STATE,
+        max_iter=2000
+    )
+    
+    clf_rf = RandomForestClassifier(
+        class_weight='balanced',
+        random_state=config.RANDOM_STATE,
+        n_estimators=200
+    )
+    
+    voting_clf = VotingClassifier(
+        estimators=[
+            ('svc', clf_svc),
+            ('lr', clf_lr),
+            ('rf', clf_rf)
+        ],
+        voting='hard' # 多数決 (LinearSVCがprobability=True非対応のためhard)
+    )
+    
+    # パイプラインの作成: 特徴量抽出 → アンサンブル分類
     ml_pipeline = Pipeline([
-        ('features', feature_union),  # ステップ1: TF-IDF + 言語的特徴量を抽出・結合
-        ('classifier', classifier)    # ステップ2: 特徴量から品詞を分類
+        ('features', feature_union),
+        ('classifier', voting_clf)
     ])
     
     # ===========================
