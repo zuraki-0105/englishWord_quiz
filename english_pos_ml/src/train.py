@@ -3,11 +3,18 @@ from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.svm import LinearSVC
 from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import VotingClassifier, RandomForestClassifier
+from sklearn.ensemble import VotingClassifier, RandomForestClassifier, StackingClassifier
 from sklearn.pipeline import Pipeline, FeatureUnion
 from sklearn.preprocessing import FunctionTransformer
 import sys
 import os
+
+try:
+    import lightgbm as lgb
+    HAS_LGBM = True
+except ImportError:
+    HAS_LGBM = False
+    print("Warning: LightGBM not found. Comparison will skip Boosting.")
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src import config
@@ -16,150 +23,138 @@ from src.rule_based_classifier import RuleBasedClassifier
 
 def train_model(df):
     """
-    提供されたDataFrameを使用してモデルを学習する関数
-    
-    処理の流れ:
-    1. サンプル数が少ないクラスのフィルタリング(stratified splitに必要)
-    2. データの分割(訓練用とテスト用)
-    3. パイプラインの構築(TF-IDF + 言語的特徴量 + 分類器)
-    4. モデルの学習
+    提供されたDataFrameを使用して複数のアンサンブルモデルを比較学習する関数
     
     Args:
-        df (pd.DataFrame): 学習用データフレーム('spell'と'pos'カラムを含む)
+        df (pd.DataFrame): 学習用データフレーム
     
     Returns:
-        tuple: (学習済みパイプライン, テスト特徴量, テスト正解ラベル)
-            - pipeline (Pipeline): TF-IDF + 言語的特徴量 + 分類器の学習済みパイプライン
-            - X_test (pd.Series): テスト用の特徴量(単語のスペル)
-            - y_test (pd.Series): テスト用の正解ラベル(品詞)
+        tuple: (学習済みVotingパイプライン, テスト特徴量, テスト正解ラベル)
+        ※メインの戻り値はこれまで通りVotingモデルとしますが、
+        内部で比較結果を表示します。
     """
     print("Splitting data...")
     
-    # ===========================
     # 少数クラスのフィルタリング
-    # ===========================
-    # stratified split(層化分割)を行うには、各クラスに最低2サンプル必要
-    # サンプル数が1のクラスがあると、train_test_splitでエラーが発生するため事前に除外
     class_counts = df['pos'].value_counts()
     rare_classes = class_counts[class_counts < 2].index.tolist()
     
     if rare_classes:
         print(f"Warning: Dropping {len(rare_classes)} class(es) with < 2 samples: {rare_classes}")
-        # 少数クラスに属するサンプルを除外
         df = df[~df['pos'].isin(rare_classes)]
         print(f"Remaining samples: {len(df)}")
     
-    # 特徴量(X)とラベル(y)の分離
-    X = df['spell']  # 単語のスペル
-    y = df['pos']    # 品詞ラベル
+    X = df['spell']
+    y = df['pos']
     
-    # ===========================
-    # データの分割
-    # ===========================
-    # stratify=y: 各クラスの比率を訓練データとテストデータで同じにする
-    # random_state: 再現性を確保するための乱数シード
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, 
-        test_size=config.TEST_SIZE,      # テストデータの割合(0.2 = 20%)
-        stratify=y,                       # クラス比率を保持
-        random_state=config.RANDOM_STATE  # 乱数シード
+        test_size=config.TEST_SIZE,      
+        stratify=y,                       
+        random_state=config.RANDOM_STATE  
     )
     
     print(f"Training set: {len(X_train)}, Test set: {len(X_test)}")
     
-    # ===========================
-    # パイプラインの構築
-    # ===========================
-    print("Initializing pipeline with enhanced features...")
-    
-    # TF-IDF Vectorizer: 文字n-gramを特徴量に変換
-    # analyzer='char': 文字レベルで解析(単語レベルではない)
-    # ngram_range: 2文字から5文字までの連続した文字列を特徴量として抽出
-    #   例: "running" → "ru", "un", "nn", "ni", "ing", "run", "unn", "nni", "ning", ...
+    # 共通の特徴量抽出パイプライン
     tfidf_vectorizer = TfidfVectorizer(
         analyzer='char',
         ngram_range=config.NGRAM_RANGE
     )
     
-    # 言語的特徴量抽出器
-    # 接尾辞・接頭辞パターン、単語長、文字比率などを抽出
     linguistic_extractor = LinguisticFeatureExtractor()
     
-    # ===========================
-    # FeatureUnionで特徴量を結合
-    # ===========================
-    # 複数の特徴抽出器を並列に実行し、結果を結合
-    # 1. TF-IDF文字n-gram (スパース行列)
-    # 2. 言語的特徴量 (密行列)
     feature_union = FeatureUnion([
-        ('tfidf', tfidf_vectorizer),           # TF-IDF特徴量
-        ('linguistic', linguistic_extractor),   # 言語的特徴量
+        ('tfidf', tfidf_vectorizer),           
+        ('linguistic', linguistic_extractor),   
     ])
     
     # ===========================
-    # 分類器の選択 (Ensemble Learning)
+    # モデル定義
     # ===========================
-    # VotingClassifier: 複数のモデルの以下のモデルを組み合わせる
-    # 1. LinearSVC: 高次元データに強い (既存のベスト)
-    # 2. LogisticRegression: 確率的推定が得意
-    # 3. RandomForest: 特徴間の非線形な関係を捉える
     
-    clf_svc = LinearSVC(
-        class_weight='balanced',
-        random_state=config.RANDOM_STATE,
-        dual='auto',
-        max_iter=3000
-    )
+    # ベースモデル群
+    clf_svc = LinearSVC(class_weight='balanced', random_state=config.RANDOM_STATE, dual='auto', max_iter=3000)
+    clf_lr = LogisticRegression(class_weight='balanced', random_state=config.RANDOM_STATE, max_iter=2000)
+    clf_rf = RandomForestClassifier(class_weight='balanced', random_state=config.RANDOM_STATE, n_estimators=200)
     
-    clf_lr = LogisticRegression(
-        class_weight='balanced',
-        random_state=config.RANDOM_STATE,
-        max_iter=2000
-    )
+    models = {}
     
-    clf_rf = RandomForestClassifier(
-        class_weight='balanced',
-        random_state=config.RANDOM_STATE,
-        n_estimators=200
-    )
-    
+    # 1. Voting (多数決)
     voting_clf = VotingClassifier(
-        estimators=[
-            ('svc', clf_svc),
-            ('lr', clf_lr),
-            ('rf', clf_rf)
-        ],
-        voting='hard' # 多数決 (LinearSVCがprobability=True非対応のためhard)
+        estimators=[('svc', clf_svc), ('lr', clf_lr), ('rf', clf_rf)],
+        voting='hard'
     )
+    models['Voting'] = Pipeline([('features', feature_union), ('classifier', voting_clf)])
     
-    # パイプラインの作成: 特徴量抽出 → アンサンブル分類
-    ml_pipeline = Pipeline([
-        ('features', feature_union),
-        ('classifier', voting_clf)
-    ])
+    # 2. Stacking (スタッキング)
+    # final_estimator (メタ学習器) が各モデルの予測を統合する
+    stacking_clf = StackingClassifier(
+        estimators=[('svc', clf_svc), ('lr', clf_lr), ('rf', clf_rf)],
+        final_estimator=LogisticRegression(random_state=config.RANDOM_STATE),
+        cv=5
+    )
+    models['Stacking'] = Pipeline([('features', feature_union), ('classifier', stacking_clf)])
+    
+    # 3. Boosting (LightGBM)
+    if HAS_LGBM:
+        # LightGBMは日本語ラベルをそのまま扱えない等の場合があるが、
+        # Pipeline内であればscikit-learnラッパーがいい感じに処理するか、
+        # あるいは数値エンコードが必要な場合がある。
+        # 今回はPipeline内でFeatureUnion後の疎行列/密行列を受け取るため、
+        # そのままLGBMClassifierに渡す。
+        lgbm_clf = lgb.LGBMClassifier(
+            random_state=config.RANDOM_STATE,
+            class_weight='balanced',
+            n_jobs=-1,
+            verbose=-1
+        )
+        models['Boosting(LightGBM)'] = Pipeline([('features', feature_union), ('classifier', lgbm_clf)])
     
     # ===========================
-    # モデルの学習
+    # 比較学習と評価
     # ===========================
-    print("Training model with TF-IDF + Linguistic features...")
-    # パイプライン全体を学習(特徴抽出と分類を同時に実行)
-    ml_pipeline.fit(X_train, y_train)
-    print("Training completed.")
+    print("\n=== Ensemble Comparison ===")
+    best_name = 'Voting'
+    best_score = 0
+    best_pipeline = None
+    
+    results = []
+    
+    for name, pipeline in models.items():
+        print(f"Training {name}...")
+        pipeline.fit(X_train, y_train)
+        score = pipeline.score(X_test, y_test)
+        print(f"  Accuracy: {score:.4f}")
+        results.append((name, score))
+        
+        if score > best_score:
+            best_score = score
+            best_name = name
+            best_pipeline = pipeline
+
+    print("===========================\n")
+    print(f"Best Model: {best_name} (Accuracy: {best_score:.4f})")
+    
+    # 結果を保存用に整形 (レポート出力用などに使えるようにprintしておく)
+    print("Comparison Summary:")
+    for name, score in results:
+        print(f"{name}: {score:.4f}")
     
     # ===========================
     # ハイブリッド予測パイプラインの構築
     # ===========================
-    print("Building hybrid prediction pipeline with rule-based classifier...")
-    # 学習済みMLパイプラインをRuleBasedClassifierでラップ
-    # これにより、助動詞はルールベースで、その他はMLモデルで予測される
+    # 最も良かったモデル（またはVoting）を最終的な成果物として返す
+    # ここではユーザーの混乱を防ぐため、とりあえずVotingを返すか、Bestを返すか。
+    # レポート目的もあるので、Bestを返してmetrics.txtに反映させるのが良さそう。
+    
+    print(f"Building hybrid prediction pipeline using {best_name}...")
     hybrid_pipeline = RuleBasedClassifier(
-        ml_classifier=ml_pipeline,
+        ml_classifier=best_pipeline,
         auxiliary_verbs=config.AUXILIARY_VERBS
     )
     
-    # RuleBasedClassifierのfit()を呼び出してclasses_を設定
-    # （実際の学習は既に完了しているため、形式的な呼び出し）
+    # RuleBasedClassifierのfit
     hybrid_pipeline.fit(X_train, y_train)
-    print("Hybrid pipeline ready.")
     
     return hybrid_pipeline, X_test, y_test

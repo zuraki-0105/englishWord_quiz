@@ -1,0 +1,9 @@
+=== Ensemble Method Comparison ===
+
+Method               | Accuracy  
+-----------------------------------
+Voting               | 0.6053
+Stacking             | 0.5974
+Boosting(LightGBM)   | 0.5368
+
+Best Model: Voting
