@@ -1,6 +1,40 @@
 import pandas as pd
 import numpy as np
+import nltk
+from nltk.corpus import wordnet
 from sklearn.base import BaseEstimator, TransformerMixin
+
+def get_wordnet_features(word):
+    """
+    WordNetを使用して単語の品詞可能性を取得する
+    """
+    try:
+        synsets = wordnet.synsets(word)
+    except LookupError:
+        return {'wn_noun': 0, 'wn_verb': 0, 'wn_adj': 0, 'wn_adv': 0}
+        
+    features = {
+        'wn_noun': 0,
+        'wn_verb': 0,
+        'wn_adj': 0,
+        'wn_adv': 0
+    }
+    
+    if not synsets:
+        return features
+        
+    for syn in synsets:
+        pos = syn.pos()
+        if pos == 'n':
+            features['wn_noun'] = 1
+        elif pos == 'v':
+            features['wn_verb'] = 1
+        elif pos == 'a' or pos == 's':
+            features['wn_adj'] = 1
+        elif pos == 'r':
+            features['wn_adv'] = 1
+            
+    return features
 
 def extract_linguistic_features(word):
     """
@@ -9,6 +43,7 @@ def extract_linguistic_features(word):
     品詞判定に有用な特徴:
     - 接尾辞パターン: -ing, -ed, -ly, -tion, -ness, -ful, -ous, -ive, -er, -est など
     - 接頭辞パターン: un-, re-, pre-, dis-, mis- など
+    - WordNet特徴: 辞書上の品詞定義
     - 単語の長さ
     - 文字比率: 母音/子音の比率
     - 特殊文字: ハイフンの有無
@@ -30,6 +65,7 @@ def extract_linguistic_features(word):
     suffix_en = 1 if word.endswith('en') else 0
     suffix_ize = 1 if word.endswith('ize') or word.endswith('ise') else 0
     suffix_ate = 1 if word.endswith('ate') else 0
+    suffix_ify = 1 if word.endswith('ify') else 0
     
     # 名詞に多い接尾辞
     suffix_tion = 1 if word.endswith('tion') or word.endswith('sion') else 0
@@ -39,6 +75,9 @@ def extract_linguistic_features(word):
     suffix_er_noun = 1 if word.endswith('er') and len(word) > 3 else 0
     suffix_or = 1 if word.endswith('or') else 0
     suffix_ism = 1 if word.endswith('ism') else 0
+    suffix_ist = 1 if word.endswith('ist') else 0
+    suffix_ance = 1 if word.endswith('ance') or word.endswith('ence') else 0
+    suffix_age = 1 if word.endswith('age') else 0
     
     # 形容詞に多い接尾辞
     suffix_ful = 1 if word.endswith('ful') else 0
@@ -51,7 +90,8 @@ def extract_linguistic_features(word):
     suffix_y = 1 if word.endswith('y') else 0
     suffix_ent = 1 if word.endswith('ent') else 0
     suffix_ant = 1 if word.endswith('ant') else 0
-
+    suffix_ish = 1 if word.endswith('ish') else 0
+    suffix_ary = 1 if word.endswith('ary') else 0
     
     # 副詞に多い接尾辞
     suffix_ly = 1 if word.endswith('ly') else 0
@@ -74,6 +114,11 @@ def extract_linguistic_features(word):
     prefix_under = 1 if word.startswith('under') else 0
     
     # ===========================
+    # WordNet 特徴
+    # ===========================
+    wn_features = get_wordnet_features(word)
+    
+    # ===========================
     # 単語の長さと構造
     # ===========================
     word_length = len(word)
@@ -91,9 +136,6 @@ def extract_linguistic_features(word):
     has_hyphen = 1 if '-' in word else 0
     has_apostrophe = 1 if "'" in word else 0
     
-    # 大文字の有無(元の単語が大文字で始まる固有名詞の可能性)
-    # 注: data_loaderで小文字化されているため、この特徴は使えない
-    
     # 連続する同じ文字のパターン
     has_double_letter = 1 if any(word[i] == word[i+1] for i in range(len(word)-1)) else 0
     
@@ -107,6 +149,7 @@ def extract_linguistic_features(word):
         'suffix_en': suffix_en,
         'suffix_ize': suffix_ize,
         'suffix_ate': suffix_ate,
+        'suffix_ify': suffix_ify,
         
         # 接尾辞 - 名詞
         'suffix_tion': suffix_tion,
@@ -116,6 +159,9 @@ def extract_linguistic_features(word):
         'suffix_er_noun': suffix_er_noun,
         'suffix_or': suffix_or,
         'suffix_ism': suffix_ism,
+        'suffix_ist': suffix_ist,
+        'suffix_ance': suffix_ance,
+        'suffix_age': suffix_age,
         
         # 接尾辞 - 形容詞
         'suffix_ful': suffix_ful,
@@ -128,6 +174,8 @@ def extract_linguistic_features(word):
         'suffix_y': suffix_y,
         'suffix_ent': suffix_ent,
         'suffix_ant': suffix_ant,
+        'suffix_ish': suffix_ish,
+        'suffix_ary': suffix_ary,
         
         # 接尾辞 - 副詞
         'suffix_ly': suffix_ly,
@@ -146,6 +194,12 @@ def extract_linguistic_features(word):
         'prefix_in': prefix_in,
         'prefix_over': prefix_over,
         'prefix_under': prefix_under,
+        
+        # WordNet
+        'wn_noun': wn_features['wn_noun'],
+        'wn_verb': wn_features['wn_verb'],
+        'wn_adj': wn_features['wn_adj'],
+        'wn_adv': wn_features['wn_adv'],
         
         # 単語の構造
         'word_length': word_length,
