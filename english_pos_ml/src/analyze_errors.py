@@ -7,58 +7,50 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src import config, data_loader
 
-def analyze_errors():
+def analyze_errors(pipeline=None, X_test=None, y_test=None):
     """
     Analyze prediction errors and save to CSV
+    
+    Args:
+        pipeline: Trained model pipeline (optional)
+        X_test: Test features (optional)
+        y_test: Test labels (optional)
     """
-    print("Loading data...")
-    try:
-        df = data_loader.load_data()
-    except Exception as e:
-        print(f"Error loading data: {e}")
-        return
-
-    print("Loading model...")
-    try:
-        pipeline = joblib.load(os.path.join(config.MODELS_DIR, 'pipeline.joblib'))
-    except Exception as e:
+    if pipeline is not None and X_test is not None and y_test is not None:
+        # Use provided data and model
+        pass
+    else:
+        # Load data and model from scratch if not provided
+        print("Loading data...")
         try:
-             # Fallback to older model structure if pipeline.joblib doesn't exist
-            print("Pipeline not found, trying to load components separately...")
-            # This part is tricky if the pipeline structure changed. 
-            # Ideally we should use the same training logic to get the split.
-            # But let's just assume we want to evaluate on the whole dataset or 
-            # re-split. To be consistent with evaluation, let's use the train_test_split from train.py logic
-            # OR better, just use the helper in train.py if importable.
-            # However, for simplicity here, let's just re-run the split logic.
-            pass
-        except Exception as e2:
+            df = data_loader.load_data()
+        except Exception as e:
+            print(f"Error loading data: {e}")
+            return
+
+        print("Loading model...")
+        try:
+            pipeline = joblib.load(os.path.join(config.MODELS_DIR, 'pipeline.joblib'))
+        except Exception as e:
             print(f"Error loading model: {e}")
             return
 
-    # To ensure we look at the TEST set errors specifically (or validation),
-    # we should replicate the split logic.
-    from src.train import train_model
-    # We can't easily get the *exact* user split unless we set random state.
-    # config.RANDOM_STATE should handle this.
-    
-    from sklearn.model_selection import train_test_split
-    
-    # Rare class filtering (duplicating logic from train.py)
-    class_counts = df['pos'].value_counts()
-    rare_classes = class_counts[class_counts < 2].index.tolist()
-    if rare_classes:
-        df = df[~df['pos'].isin(rare_classes)]
+        # Rare class filtering (duplicating logic from train.py)
+        class_counts = df['pos'].value_counts()
+        rare_classes = class_counts[class_counts < 2].index.tolist()
+        if rare_classes:
+            df = df[~df['pos'].isin(rare_classes)]
+            
+        X = df['spell']
+        y = df['pos']
         
-    X = df['spell']
-    y = df['pos']
-    
-    _, X_test, _, y_test = train_test_split(
-        X, y, 
-        test_size=config.TEST_SIZE, 
-        stratify=y, 
-        random_state=config.RANDOM_STATE
-    )
+        from sklearn.model_selection import train_test_split
+        _, X_test, _, y_test = train_test_split(
+            X, y, 
+            test_size=config.TEST_SIZE, 
+            stratify=y, 
+            random_state=config.RANDOM_STATE
+        )
     
     print(f"Predicting on {len(X_test)} test samples...")
     y_pred = pipeline.predict(X_test)

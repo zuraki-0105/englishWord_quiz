@@ -71,6 +71,7 @@ id,spell,pos,meaning
 
 ```bash
 python src/main.py
+python english_pos_ml/src/main.py
 ```
 
 **実行される処理**:

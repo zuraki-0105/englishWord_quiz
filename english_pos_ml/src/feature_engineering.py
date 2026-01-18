@@ -1,16 +1,27 @@
+import os
+import sys
 import pandas as pd
 import numpy as np
-import nltk
-from nltk.corpus import wordnet
 from sklearn.base import BaseEstimator, TransformerMixin
+
+# プロジェクトルートとconfigの読み込み
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from src import config
 
 def get_wordnet_features(word):
     """
     WordNetを使用して単語の品詞可能性を取得する
     """
+    # WordNetを使用しない場合は、全て0の特徴量を返す
+    if not config.USE_WORDNET:
+        return {'wn_noun': 0, 'wn_verb': 0, 'wn_adj': 0, 'wn_adv': 0}
+
     try:
+        # ここでインポートすることで、USE_WORDNET=Falseの時にNLTKへの依存をなくす
+        from nltk.corpus import wordnet
         synsets = wordnet.synsets(word)
-    except LookupError:
+    except (ImportError, LookupError):
+        # ライブラリがない、またはデータがない場合も0を返す
         return {'wn_noun': 0, 'wn_verb': 0, 'wn_adj': 0, 'wn_adv': 0}
         
     features = {

@@ -96,3 +96,15 @@ AUXILIARY_VERBS = {
     'used to',         # 以前は〜だった
     'need to',         # 〜する必要がある
 }
+
+# ===========================
+# 実行制御フラグ
+# ===========================
+
+# NLTKのWordNetを使用するかどうかのフラグ
+# Trueにすると精度が向上する可能性がありますが、NLTKのデータセットが必要です。
+USE_WORDNET = False
+
+# 学習実行時にエラー分析 (error_analysis.csv の生成) を行うかどうか
+PERFORM_ERROR_ANALYSIS = False
+

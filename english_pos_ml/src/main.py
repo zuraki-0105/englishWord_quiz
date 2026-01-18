@@ -3,7 +3,7 @@ import sys
 import joblib
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from src import config, data_loader, train, evaluate
+from src import config, data_loader, train, evaluate, analyze_errors
 
 def main():
     """
@@ -29,7 +29,6 @@ def main():
         print(f"Please place input CSV file at: {config.DATA_FILE}")
         return
     except Exception as e:
-        # その他の予期しないエラー
         print(f"Unexpected error loading data: {e}")
         return
     
@@ -46,6 +45,13 @@ def main():
     print("\n--- Evaluating Model ---")
     # テストデータでモデルを評価し、結果をファイルに保存
     evaluate.evaluate_model(pipeline, X_test, y_test)
+    
+    # ===========================
+    # 3.5 予測エラーの分析 (オプション)
+    # ===========================
+    if config.PERFORM_ERROR_ANALYSIS:
+        print("\n--- Performing Error Analysis ---")
+        analyze_errors.analyze_errors(pipeline, X_test, y_test)
     
     # ===========================
     # 4. 学習済みモデルの保存
