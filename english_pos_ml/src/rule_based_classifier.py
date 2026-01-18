@@ -87,23 +87,43 @@ class RuleBasedClassifier(BaseEstimator, ClassifierMixin):
     
     def predict_proba(self, X):
         """
-        確率予測（オプション）
+        確率予測
         
-        注意: LinearSVCはpredict_proba()をサポートしていないため、
-        このメソッドは実装していません。必要な場合は、
-        CalibratedClassifierCVでMLモデルをラップしてください。
+        各単語に対して:
+        1. 助動詞リストに含まれているかチェック
+        2. 含まれていれば「助動詞」クラスの確率を1.0とし、他を0.0とする
+        3. 含まれていなければMLモデルで確率を予測
         
         Args:
             X: 入力データ
         
-        Raises:
-            NotImplementedError: このメソッドは未実装
+        Returns:
+            np.ndarray: 各クラスに対する確率
         """
-        raise NotImplementedError(
-            "predict_proba is not supported. "
-            "Use CalibratedClassifierCV if probability estimates are needed."
-        )
-    
+        probabilities = []
+        
+        # クラスのインデックスマップを作成
+        class_to_idx = {cls: i for i, cls in enumerate(self.classes_)}
+        aux_idx = class_to_idx.get('助動詞')
+        
+        # 助動詞クラスが存在しない場合（学習データに含まれていない場合など）のハンドリングは
+        # 現状の仕様では考慮が必要だが、通常は含まれる前提とする。
+        
+        for word in X:
+            word_lower = str(word).lower().strip()
+            
+            if word_lower in self.auxiliary_verbs and aux_idx is not None:
+                # 助動詞の場合はOne-hotベクトルを作成
+                proba = np.zeros(len(self.classes_))
+                proba[aux_idx] = 1.0
+                probabilities.append(proba)
+            else:
+                # MLモデルで予測
+                ml_proba = self.ml_classifier.predict_proba([word])
+                probabilities.append(ml_proba[0])
+                
+        return np.array(probabilities)
+
     def get_params(self, deep=True):
         """
         パラメータの取得（scikit-learn互換性のため）

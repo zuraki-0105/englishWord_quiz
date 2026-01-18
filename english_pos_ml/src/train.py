@@ -6,6 +6,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import VotingClassifier, RandomForestClassifier, StackingClassifier
 from sklearn.pipeline import Pipeline, FeatureUnion
 from sklearn.preprocessing import FunctionTransformer
+from sklearn.calibration import CalibratedClassifierCV
 import sys
 import os
 
@@ -74,16 +75,19 @@ def train_model(df):
     # ===========================
     
     # ベースモデル群
-    clf_svc = LinearSVC(class_weight='balanced', random_state=config.RANDOM_STATE, dual='auto', max_iter=3000)
+    # LinearSVCは確率出力を持たないので、CalibratedClassifierCVでラップする
+    svc = LinearSVC(class_weight='balanced', random_state=config.RANDOM_STATE, dual='auto', max_iter=3000)
+    clf_svc = CalibratedClassifierCV(svc, cv=5)
+    
     clf_lr = LogisticRegression(class_weight='balanced', random_state=config.RANDOM_STATE, max_iter=2000)
     clf_rf = RandomForestClassifier(class_weight='balanced', random_state=config.RANDOM_STATE, n_estimators=200)
     
     models = {}
     
-    # 1. Voting (多数決)
+    # 1. Voting (多数決) -> soft votingに変更して確率を出力可能にする
     voting_clf = VotingClassifier(
         estimators=[('svc', clf_svc), ('lr', clf_lr), ('rf', clf_rf)],
-        voting='hard'
+        voting='soft'
     )
     models['Voting'] = Pipeline([('features', feature_union), ('classifier', voting_clf)])
     
