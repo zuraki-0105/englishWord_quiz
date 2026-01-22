@@ -3,19 +3,16 @@ from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.svm import LinearSVC
 from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import VotingClassifier, RandomForestClassifier, StackingClassifier
+from sklearn.ensemble import VotingClassifier, RandomForestClassifier, ExtraTreesClassifier
 from sklearn.pipeline import Pipeline, FeatureUnion
 from sklearn.preprocessing import FunctionTransformer
 from sklearn.calibration import CalibratedClassifierCV
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.neural_network import MLPClassifier
+from sklearn.linear_model import SGDClassifier
+from sklearn.neighbors import KNeighborsClassifier
 import sys
 import os
-
-try:
-    import lightgbm as lgb
-    HAS_LGBM = True
-except ImportError:
-    HAS_LGBM = False
-    print("Warning: LightGBM not found. Comparison will skip Boosting.")
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src import config
@@ -82,68 +79,41 @@ def train_model(df):
     clf_lr = LogisticRegression(class_weight='balanced', random_state=config.RANDOM_STATE, max_iter=2000)
     clf_rf = RandomForestClassifier(class_weight='balanced', random_state=config.RANDOM_STATE, n_estimators=200)
     
-    models = {}
+    # 追加モデル
+    clf_nb = MultinomialNB()
+    clf_mlp = MLPClassifier(hidden_layer_sizes=(100,), max_iter=1000, random_state=config.RANDOM_STATE)
     
-    # 1. Voting (多数決) -> soft votingに変更して確率を出力可能にする
+    # SGDClassifierは確率出力のためにloss='log_loss'またはCalibratedClassifierCVが必要
+    sgd = SGDClassifier(loss='log_loss', class_weight='balanced', random_state=config.RANDOM_STATE)
+    clf_sgd = sgd
+    
+    clf_knn = KNeighborsClassifier(n_neighbors=5)
+    
+    # Extra Treesも追加（多様性のため）
+    clf_et = ExtraTreesClassifier(class_weight='balanced', random_state=config.RANDOM_STATE, n_estimators=200)
+    
+    # Voting (多数決) -> soft voting
     voting_clf = VotingClassifier(
-        estimators=[('svc', clf_svc), ('lr', clf_lr), ('rf', clf_rf)],
+        estimators=[
+            ('svc', clf_svc), 
+            ('lr', clf_lr), 
+            ('rf', clf_rf),
+            ('nb', clf_nb),
+            ('mlp', clf_mlp),
+            ('sgd', clf_sgd),
+            ('knn', clf_knn),
+            ('et', clf_et)
+        ],
         voting='soft'
     )
-    models['Voting'] = Pipeline([('features', feature_union), ('classifier', voting_clf)])
     
-    # 2. Stacking (スタッキング)
-    # final_estimator (メタ学習器) が各モデルの予測を統合する
-    stacking_clf = StackingClassifier(
-        estimators=[('svc', clf_svc), ('lr', clf_lr), ('rf', clf_rf)],
-        final_estimator=LogisticRegression(random_state=config.RANDOM_STATE),
-        cv=5
-    )
-    models['Stacking'] = Pipeline([('features', feature_union), ('classifier', stacking_clf)])
+    final_pipeline = Pipeline([('features', feature_union), ('classifier', voting_clf)])
     
-    # 3. Boosting (LightGBM)
-    if HAS_LGBM:
-        # LightGBMは日本語ラベルをそのまま扱えない等の場合があるが、
-        # Pipeline内であればscikit-learnラッパーがいい感じに処理するか、
-        # あるいは数値エンコードが必要な場合がある。
-        # 今回はPipeline内でFeatureUnion後の疎行列/密行列を受け取るため、
-        # そのままLGBMClassifierに渡す。
-        lgbm_clf = lgb.LGBMClassifier(
-            random_state=config.RANDOM_STATE,
-            class_weight='balanced',
-            n_jobs=-1,
-            verbose=-1
-        )
-        models['Boosting(LightGBM)'] = Pipeline([('features', feature_union), ('classifier', lgbm_clf)])
+    print("\nTraining Ensemble (Voting)...")
+    final_pipeline.fit(X_train, y_train)
     
-    # ===========================
-    # 比較学習と評価
-    # ===========================
-    print("\n=== Ensemble Comparison ===")
-    best_name = 'Voting'
-    best_score = 0
-    best_pipeline = None
-    
-    results = []
-    
-    for name, pipeline in models.items():
-        print(f"Training {name}...")
-        pipeline.fit(X_train, y_train)
-        score = pipeline.score(X_test, y_test)
-        print(f"  Accuracy: {score:.4f}")
-        results.append((name, score))
-        
-        if score > best_score:
-            best_score = score
-            best_name = name
-            best_pipeline = pipeline
-
-    print("===========================\n")
-    print(f"Best Model: {best_name} (Accuracy: {best_score:.4f})")
-    
-    # 結果を保存用に整形 (レポート出力用などに使えるようにprintしておく)
-    print("Comparison Summary:")
-    for name, score in results:
-        print(f"{name}: {score:.4f}")
+    score = final_pipeline.score(X_test, y_test)
+    print(f"Ensemble Accuracy: {score:.4f}")
     
     # ===========================
     # ハイブリッド予測パイプラインの構築
@@ -152,9 +122,9 @@ def train_model(df):
     # ここではユーザーの混乱を防ぐため、とりあえずVotingを返すか、Bestを返すか。
     # レポート目的もあるので、Bestを返してmetrics.txtに反映させるのが良さそう。
     
-    print(f"Building hybrid prediction pipeline using {best_name}...")
+    print("Building hybrid prediction pipeline...")
     hybrid_pipeline = RuleBasedClassifier(
-        ml_classifier=best_pipeline,
+        ml_classifier=final_pipeline,
         auxiliary_verbs=config.AUXILIARY_VERBS
     )
     

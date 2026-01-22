@@ -1,1 +1,22 @@
-/data
+# Machine Learning artifacts
+*.joblib
+*.pkl
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+ENV/
+
+# Outputs
+english_pos_ml/outputs/*.png
+english_pos_ml/outputs/*.csv
+english_pos_ml/outputs/*.txt
+!english_pos_ml/outputs/ensemble_comparison.txt
+
+# OS
+.DS_Store
+Thumbs.db
