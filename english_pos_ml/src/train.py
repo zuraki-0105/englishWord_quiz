@@ -3,11 +3,9 @@ from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.svm import LinearSVC
 from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import VotingClassifier, RandomForestClassifier, ExtraTreesClassifier
+from sklearn.ensemble import VotingClassifier, RandomForestClassifier
 from sklearn.pipeline import Pipeline, FeatureUnion
-from sklearn.preprocessing import FunctionTransformer
 from sklearn.calibration import CalibratedClassifierCV
-from sklearn.naive_bayes import MultinomialNB
 from sklearn.neural_network import MLPClassifier
 from sklearn.linear_model import SGDClassifier
 from sklearn.neighbors import KNeighborsClassifier
@@ -79,18 +77,13 @@ def train_model(df):
     clf_lr = LogisticRegression(class_weight='balanced', random_state=config.RANDOM_STATE, max_iter=2000)
     clf_rf = RandomForestClassifier(class_weight='balanced', random_state=config.RANDOM_STATE, n_estimators=200)
     
-    # 追加モデル
-    clf_nb = MultinomialNB()
+    # ベースモデル（追加）
     clf_mlp = MLPClassifier(hidden_layer_sizes=(100,), max_iter=1000, random_state=config.RANDOM_STATE)
     
-    # SGDClassifierは確率出力のためにloss='log_loss'またはCalibratedClassifierCVが必要
-    sgd = SGDClassifier(loss='log_loss', class_weight='balanced', random_state=config.RANDOM_STATE)
-    clf_sgd = sgd
+    # SGDClassifierは確率出力のためにloss='log_loss'が必要
+    clf_sgd = SGDClassifier(loss='log_loss', class_weight='balanced', random_state=config.RANDOM_STATE)
     
     clf_knn = KNeighborsClassifier(n_neighbors=5)
-    
-    # Extra Treesも追加（多様性のため）
-    clf_et = ExtraTreesClassifier(class_weight='balanced', random_state=config.RANDOM_STATE, n_estimators=200)
     
     # Voting (多数決) -> soft voting
     voting_clf = VotingClassifier(
@@ -98,11 +91,9 @@ def train_model(df):
             ('svc', clf_svc), 
             ('lr', clf_lr), 
             ('rf', clf_rf),
-            ('nb', clf_nb),
             ('mlp', clf_mlp),
             ('sgd', clf_sgd),
-            ('knn', clf_knn),
-            ('et', clf_et)
+            ('knn', clf_knn)
         ],
         voting='soft'
     )
